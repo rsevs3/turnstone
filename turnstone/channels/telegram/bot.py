@@ -197,6 +197,25 @@ def _code_name(raw: object) -> str:
     return truncate(flat or "tool", 100)
 
 
+# Workstream names rendered in the console's workstream browser.
+# Readable labels (where + who), not raw channel IDs — the ws_id
+# already carries that.
+_NAME_PART_MAX = 40
+
+
+def _session_name(chat_title: str, full_name: str) -> str:
+    """Workstream name for a group session: ``Telegram: <group> — <user>``."""
+    title = (chat_title or "").strip()[:_NAME_PART_MAX] or "group"
+    who = (full_name or "").strip()[:_NAME_PART_MAX] or "user"
+    return f"Telegram: {title} — {who}"
+
+
+def _dm_name(full_name: str) -> str:
+    """Workstream name for a DM session: ``Telegram DM: <user>``."""
+    who = (full_name or "").strip()[:_NAME_PART_MAX] or "user"
+    return f"Telegram DM: {who}"
+
+
 def _parse_approval_marker(text: str | None) -> tuple[str, str, str] | None:
     """Extract ``(ws_id, cycle_id, owner_id)`` from an approval message.
 
@@ -833,7 +852,7 @@ class TurnstoneTelegramBot:
             ws_id, _ = await self.router.get_or_create_workstream(
                 channel_type="telegram",
                 channel_id=route.to_channel_id(),
-                name=f"telegram-{chat_id}",
+                name=_session_name(getattr(chat, "title", ""), user.full_name),
                 # A model that isn't loaded fails the create.
                 model=channel_model,
                 client_type="chat",
@@ -924,7 +943,7 @@ class TurnstoneTelegramBot:
                 return
 
         if chat.type == "private":
-            await self._handle_dm(chat.id, user_id, text)
+            await self._handle_dm(chat.id, user_id, text, user.full_name)
             return
 
         if self.config.allowed_chats and chat.id not in self.config.allowed_chats:
@@ -954,7 +973,7 @@ class TurnstoneTelegramBot:
             recovered_ws_id, _is_new = await self.router.get_or_create_workstream(
                 channel_type="telegram",
                 channel_id=route.to_channel_id(),
-                name=f"telegram-{user_id[:8]}",
+                name=_session_name(getattr(chat, "title", ""), user.full_name),
                 client_type="chat",
                 require_existing=True,
             )
@@ -996,7 +1015,7 @@ class TurnstoneTelegramBot:
         tracked = self._session_msgs.get(session_key)
         return tracked is not None and reply_id in tracked
 
-    async def _handle_dm(self, chat_id: int, user_id: str, text: str) -> None:
+    async def _handle_dm(self, chat_id: int, user_id: str, text: str, full_name: str = "") -> None:
         """Handle a direct message — no command required."""
         # Same identity gate as /turnstone and group messages: a
         # Telegram user must be linked to a Turnstone account before
@@ -1016,7 +1035,7 @@ class TurnstoneTelegramBot:
             ws_id, _is_new = await self.router.get_or_create_workstream(
                 channel_type="telegram",
                 channel_id=route.to_channel_id(),
-                name=f"telegram-dm-{user_id[:8]}",
+                name=_dm_name(full_name),
                 # Looked up only when this starts or forks a conversation: a DM
                 # to a live one doesn't need it.
                 model=self.router.get_channel_default_alias,
