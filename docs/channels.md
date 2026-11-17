@@ -7,8 +7,8 @@ platform-native events (messages, button clicks, slash commands) into
 turnstone API calls, and renders workstream output back into the
 platform's UI.
 
-Discord and Slack adapters ship today. The adapter protocol is designed
-so new platforms can be added with only a new package under
+Discord, Slack, and Telegram adapters ship today. The adapter protocol
+is designed so new platforms can be added with only a new package under
 `turnstone/channels/<platform>/`.
 
 ---
@@ -16,9 +16,9 @@ so new platforms can be added with only a new package under
 ## Architecture
 
 ```
-Discord Gateway        Slack (Socket Mode WebSocket)
-       \                  /
-        v                v
+Discord Gateway      Slack (Socket Mode)    Telegram (long polling)
+      \                    /                    /
+       v                  v                    v
        turnstone-channel  (one or more adapters)
               |
               v
@@ -28,8 +28,8 @@ Discord Gateway        Slack (Socket Mode WebSocket)
 ```
 
 A single `turnstone-channel` process can run multiple adapters
-simultaneously (e.g. Discord + Slack) — pass the tokens for each
-platform you want to enable.
+simultaneously (e.g. Discord + Slack + Telegram) — pass the tokens for
+each platform you want to enable.
 
 Key components:
 
@@ -186,6 +186,107 @@ both and the gateway hosts both adapters in one process.
 
 ---
 
+## Telegram Setup
+
+Telegram uses **long polling**: the bot connects outbound to Telegram's
+Bot API, so no public URL or webhook endpoint is required. Install the
+Telegram extra in your Python 3.13 or newer Turnstone virtual environment
+(see the [quickstart](../README.md#quickstart)):
+
+```bash
+python -m pip install 'turnstone[telegram]'
+```
+
+### 1. Create a Telegram Bot
+
+1. Open [@BotFather](https://t.me/BotFather) in Telegram and run `/newbot`
+2. Copy the token it issues (format `123456789:ABC-DEF...`) — it is shown
+   only once
+3. **For group support**, run `/setprivacy`, select the bot, and choose
+   **Disable**, so the bot receives ordinary (non-command) group
+   messages. Direct messages are unaffected; without this, group
+   sessions only see commands and replies to the bot's own messages.
+4. **For forum groups**, add the bot to the supergroup as an
+   administrator and grant it the **Manage Topics** right so it can
+   create a topic per session
+
+### 2. Configure Turnstone
+
+**Environment variables** (recommended for Docker):
+
+```bash
+TURNSTONE_TELEGRAM_TOKEN=123456789:ABC-DEF...
+# Optional: restrict to specific chat IDs (negative for groups)
+TURNSTONE_TELEGRAM_CHATS=
+```
+
+**CLI flags** (bare-metal):
+
+```bash
+turnstone-channel \
+  --telegram-token "123456789:ABC-DEF..." \
+  --server-url http://localhost:8080
+```
+
+**Docker Compose** (production profile):
+
+```bash
+# In .env file:
+TURNSTONE_TELEGRAM_TOKEN=123456789:ABC-DEF...
+```
+
+Then start the stack:
+
+```bash
+docker compose up
+```
+
+The `channel` gateway runs by default; the Telegram adapter activates
+once `TURNSTONE_TELEGRAM_TOKEN` is set. It can run alongside the Discord
+and Slack adapters in the same process.
+
+### 3. Link User Accounts
+
+Telegram users must link their account to a turnstone user before they
+can interact with the bot. Unlinked users receive a pointer to `/link`
+instead of being answered.
+
+1. The user must have a turnstone API token — created via the admin
+   panel or `turnstone-admin create-token`
+2. In a **private chat with the bot**, the user runs `/link <token>`.
+   `/link` is DM-only: a token typed into a group command would be
+   visible to every member of the group.
+3. The token is validated against the database. If valid, a
+   `channel_users` mapping is created (throttled to 5 attempts per hour
+   per user).
+4. The user can now use the bot in DMs and in groups.
+
+An admin can also force-link or unlink users via the console admin panel
+(Admin > Channels tab). `/unlink` removes the mapping.
+
+### 4. Usage
+
+- **DM the bot**: messages sent directly to the bot create a workstream
+  scoped to that DM; no command is required.
+- **Forum supergroups**: `/turnstone` creates a topic (named after the
+  command's arguments, or the user) and all messages inside that topic
+  are routed to the session. Messages elsewhere in the group are
+  ignored. `/turnstone` again by the same user archives the old
+  workstream and opens a fresh topic.
+- **Regular groups**: `/turnstone` posts an opener message; any reply
+  anywhere in that session's reply chain routes to the workstream. This
+  requires privacy mode to be disabled (step 3 above).
+- Tool approvals render as inline-keyboard **Approve / Deny** buttons;
+  only the user who owns the workstream can press them. The bot posts an
+  intent-verdict (judge) summary onto the prompt while it is pending.
+- Notifications and reply routing work like the other adapters: reply to
+  a notification message and the next response continues in that
+  context.
+- Session recovery: persisted channel routes are re-subscribed when the
+  bot restarts, so existing conversations keep flowing.
+
+---
+
 ## Usage
 
 ### Conversations
@@ -281,6 +382,8 @@ still requiring manual approval for others).
 | `--slack-app-token` | `TURNSTONE_SLACK_APP_TOKEN` | — | Slack App-Level token (`xapp-…`, required with `--slack-token`) |
 | `--slack-channels` | `TURNSTONE_SLACK_CHANNELS` | empty (all) | Comma-separated Slack channel IDs to allow |
 | `--slack-slash-command` | `TURNSTONE_SLACK_SLASH_COMMAND` | `/turnstone` | Slash command name registered in the Slack app |
+| `--telegram-token` | `TURNSTONE_TELEGRAM_TOKEN` | — | Telegram bot token from @BotFather (required to enable Telegram) |
+| `--telegram-chats` | `TURNSTONE_TELEGRAM_CHATS` | empty (all) | Comma-separated Telegram chat IDs to allow |
 | `--server-url` | `TURNSTONE_SERVER_URL` | `http://localhost:8080` | Server URL (single-node) |
 | `--console-url` | `TURNSTONE_CONSOLE_URL` | — | Console URL (multi-node routing proxy) |
 | `--model` | — | server default | Discord's model for new workstreams when the `channels.default_model_alias` setting is empty (Slack uses only the setting). A model that isn't loaded, or a setting the bot can't fetch, fails the conversation instead of using another |
@@ -290,8 +393,9 @@ still requiring manual approval for others).
 | `--log-level` | `TURNSTONE_LOG_LEVEL` | `INFO` | Log level |
 | `--log-format` | `TURNSTONE_LOG_FORMAT` | `auto` | Log format (`auto`/`json`/`text`) |
 
-At least one of `--discord-token` or `--slack-token` must be supplied.
-Passing both starts both adapters in the same process.
+At least one of `--discord-token`, `--slack-token`, or `--telegram-token`
+must be supplied. Passing several starts all those adapters in the same
+process.
 
 ---
 
@@ -304,7 +408,7 @@ Passing both starts both adapters in the same process.
 - Admin can force-link or unlink via the console admin panel (Admin >
   Channels tab). Unlinking uses a styled confirmation modal.
 - Unlinked users' messages are silently dropped
-- A user can be linked across multiple platforms (e.g. Discord + Slack)
+- A user can be linked across multiple platforms (e.g. Discord + Slack + Telegram)
 
 See [Security: Database Schema](security.md#database-schema) for the
 `channel_users` table definition.
@@ -352,7 +456,7 @@ Two modes:
 
 - **Username** — provide a turnstone `username`. The gateway resolves
   it via the `channel_users` table and sends to every linked platform
-  the user has (e.g. Discord + Slack).
+  the user has (e.g. Discord + Slack + Telegram).
 - **Direct** — provide `channel_type` + `channel_id` to target a
   specific platform channel or user DM.
 
@@ -360,6 +464,11 @@ Discord notifications support user mentions (`<@USER_ID>`), role mentions (`<@&R
 and `@here`. Mention syntax is preserved, and Discord's permissions and each recipient's notification
 settings determine whether a ping is delivered. To send a DM, use the user's Discord ID as `channel_id`;
 a separate server channel ID is not needed.
+
+Telegram targets a numeric user or chat ID, or `chat:user_id[:thread_id]` for attribution-aware
+targeting (the reply-to-notification flow needs the user component). A user who has never opened a
+chat with the bot can't receive Telegram bot messages at all, so DM notifications require that
+handshake first.
 
 ### Delivery Flow
 

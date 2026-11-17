@@ -15,11 +15,11 @@
       "channel_type": {
         "type": "string",
         "description": "Channel platform for direct targeting.",
-        "enum": ["discord"]
+        "enum": ["discord", "slack", "telegram"]
       },
       "channel_id": {
         "type": "string",
-        "description": "Platform-specific channel or user ID for direct targeting."
+        "description": "Platform-specific channel or user ID for direct targeting. Telegram: a numeric user/chat ID, or 'chat:user_id[:thread_id]' for attribution-aware targeting."
       },
       "title": {
         "type": "string",

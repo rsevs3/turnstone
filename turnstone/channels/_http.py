@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from turnstone.core.storage._protocol import StorageBackend
 
 from turnstone.channels.slack.routes import SlackRoute
+from turnstone.channels.telegram.routes import TelegramRoute
 
 log = get_logger(__name__)
 
@@ -33,6 +34,10 @@ _NOTIFY_ADAPTER_TIMEOUT: float = 30.0
 
 # ws_id is a hex string (8–32 chars depending on entry point).
 _WS_ID_RE = re.compile(r"^[0-9a-f]{8,32}$")
+
+# Telegram route codec: a plain numeric user/chat ID, or
+# "chat[:user[:thread]]" where chat may be negative (supergroups).
+_TELEGRAM_TARGET_RE = re.compile(r"^-?\d+(?::-?\d+)?(?::\d+)?$")
 
 
 async def _handle_health(request: Request) -> JSONResponse:
@@ -154,6 +159,32 @@ async def _handle_notify(request: Request) -> JSONResponse:
                             "slack notification targets with ws_id must use "
                             "channel_id in the form 'channel:user_id' or "
                             "'channel:user_id:thread_ts'"
+                        )
+                    },
+                    status_code=400,
+                )
+
+        if channel_type == "telegram":
+            if not _TELEGRAM_TARGET_RE.match(channel_id):
+                return JSONResponse(
+                    {
+                        "error": (
+                            "telegram channel_id must be a numeric user/chat ID "
+                            "or 'chat:user_id[:thread_id]'"
+                        )
+                    },
+                    status_code=400,
+                )
+            telegram_route = TelegramRoute.parse(channel_id)
+            if ws_id and len(channel_id.split(":")) >= 2 and not telegram_route.user_id:
+                # A group-only target can't attribute notification
+                # replies; a plain numeric ID is a user DM and is fine.
+                return JSONResponse(
+                    {
+                        "error": (
+                            "telegram notification targets with ws_id must use "
+                            "channel_id in the form 'user_id', 'chat:user_id' or "
+                            "'chat:user_id:thread_id'"
                         )
                     },
                     status_code=400,

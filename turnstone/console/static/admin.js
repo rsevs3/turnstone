@@ -1159,7 +1159,7 @@ function _renderChannels(channels) {
       .toLowerCase()
       .replace(/[^a-z0-9]/g, "");
     const ctClass =
-      ctSlug && (ctSlug === "discord" || ctSlug === "slack")
+      ctSlug && (ctSlug === "discord" || ctSlug === "slack" || ctSlug === "telegram")
         ? "scope-badge scope-" + ctSlug
         : "scope-badge scope-channel";
     html +=
@@ -1525,6 +1525,12 @@ const _NOTIFY_CHANNEL_TYPES = [
     value: "slack",
     label: "Slack",
     id_hint: "Slack ID (e.g. C01234567 or U01234567)",
+  },
+  {
+    value: "telegram",
+    label: "Telegram",
+    id_hint:
+      "Telegram chat ID (e.g. 123456789 for a DM, or chat:user:thread like -100200:12345:555)",
   },
 ];
 

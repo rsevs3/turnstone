@@ -90,7 +90,8 @@ test = ["pytest>=9.0", "pytest-cov>=6.0", "slack-bolt>=1.18", "aiohttp>=3.9", "f
 dev = ["ruff==0.17.4", "mypy>=1.14"]
 discord = ["discord.py>=2.4"]
 slack = ["slack-bolt>=1.18", "aiohttp>=3.9"]
-all = ["turnstone[discord,slack]"]
+telegram = ["python-telegram-bot>=21.6"]
+all = ["turnstone[discord,slack,telegram]"]
 
 [project.scripts]
 turnstone = "turnstone.cli:main"
@@ -242,3 +243,9 @@ warn_unused_ignores = false
 module = ["slack_bolt", "slack_bolt.*", "slack_sdk", "slack_sdk.*"]
 ignore_missing_imports = true
 disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = ["telegram", "telegram.*"]
+disallow_untyped_calls = false
+disallow_untyped_decorators = false
+warn_unused_ignores = false

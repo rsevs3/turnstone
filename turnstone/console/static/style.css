@@ -666,6 +666,10 @@
   color: var(--slack);
   border-color: var(--slack-glow);
 }
+.scope-telegram {
+  color: var(--telegram);
+  border-color: var(--telegram-glow);
+}
 .scope-channel {
   color: var(--magenta);
   border-color: var(--magenta-glow);

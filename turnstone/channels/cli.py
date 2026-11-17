@@ -96,6 +96,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Slack slash command name (default: /turnstone)",
     )
 
+    # -- Telegram ------------------------------------------------------------
+    parser.add_argument(
+        "--telegram-token",
+        default=os.environ.get("TURNSTONE_TELEGRAM_TOKEN", ""),
+        help="Telegram bot token from @BotFather (default: $TURNSTONE_TELEGRAM_TOKEN)",
+    )
+    parser.add_argument(
+        "--telegram-chats",
+        default=os.environ.get("TURNSTONE_TELEGRAM_CHATS", ""),
+        help="Comma-separated list of allowed Telegram chat IDs (default: all)",
+    )
+
     # -- HTTP server ---------------------------------------------------------
     parser.add_argument(
         "--http-host",
@@ -295,6 +307,32 @@ def _build_adapters(
         )
         adapters[slack_bot.channel_type] = cast("ChannelAdapter", slack_bot)
 
+    if args.telegram_token:
+        from turnstone.channels.telegram.bot import TurnstoneTelegramBot
+        from turnstone.channels.telegram.config import TelegramConfig
+
+        allowed_chats: list[int] = []
+        if args.telegram_chats:
+            allowed_chats = [
+                int(c.strip()) for c in args.telegram_chats.split(",") if c.strip()
+            ]
+
+        telegram_config = TelegramConfig(
+            model=args.model,
+            auto_approve=args.auto_approve,
+            bot_token=args.telegram_token,
+            allowed_chats=allowed_chats,
+        )
+        telegram_bot = TurnstoneTelegramBot(
+            telegram_config,
+            server_url,
+            storage,
+            console_url=console_url,
+            console_token_factory=console_token_factory,
+            server_token_factory=server_token_factory,
+        )
+        adapters[telegram_bot.channel_type] = cast("ChannelAdapter", telegram_bot)
+
     return adapters
 
 
@@ -413,7 +451,7 @@ def main() -> None:
     if bool(args.slack_token) != bool(args.slack_app_token):
         raise SystemExit("--slack-token and --slack-app-token must be provided together")
 
-    has_adapters = bool(args.discord_token or args.slack_token)
+    has_adapters = bool(args.discord_token or args.slack_token or args.telegram_token)
 
     # Adapters need to reach the server/console; standby doesn't.
     if has_adapters and not console_url and not server_url:
@@ -442,7 +480,10 @@ def main() -> None:
         log.warning(
             "channel.standby",
             reason="no channel adapters configured",
-            hint="set $TURNSTONE_DISCORD_TOKEN or $TURNSTONE_SLACK_TOKEN and restart",
+            hint=(
+                "set $TURNSTONE_DISCORD_TOKEN, $TURNSTONE_SLACK_TOKEN, or "
+                "$TURNSTONE_TELEGRAM_TOKEN and restart"
+            ),
         )
         adapters = {}
 
